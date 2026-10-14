@@ -4,14 +4,14 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ZIC Modeling — Parametric 3D CAD & 3D Print Generator</title>
+    <title>ZIC Modeling Parametric 3D CAD & 3D Print Generator</title>
 
-    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
 
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -36,23 +36,24 @@
     </script>
 
     <style>
-        /* Custom scrollbar for sidebar */
         ::-webkit-scrollbar {
             width: 6px;
             height: 6px;
         }
+
         ::-webkit-scrollbar-track {
             background: #090d16;
         }
+
         ::-webkit-scrollbar-thumb {
             background: #1e293b;
             border-radius: 9999px;
         }
+
         ::-webkit-scrollbar-thumb:hover {
             background: #334155;
         }
 
-        /* Range input styling */
         input[type="range"] {
             -webkit-appearance: none;
             appearance: none;
@@ -61,6 +62,7 @@
             border-radius: 9999px;
             outline: none;
         }
+
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
             appearance: none;
@@ -72,18 +74,17 @@
             box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
             transition: transform 0.1s ease, background-color 0.1s ease;
         }
+
         input[type="range"]::-webkit-slider-thumb:hover {
             transform: scale(1.2);
             background: #7dd3fc;
         }
     </style>
 
-    <!-- React 18 & Babel Standalone -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Three.js + Addons Import Map -->
     <script type="importmap">
     {
       "imports": {
@@ -107,7 +108,6 @@
 
         const API_BASE = "http://127.0.0.1:5000";
 
-        // Preset library for common maker sizes
         const PRESETS = {
             enclosure: [
                 { name: "Raspberry Pi 4", length: 92, width: 62, height: 28, wallThickness: 2.0, filletRadius: 4.0, holeDiameter: 3.0, addFlange: true },
@@ -127,7 +127,6 @@
         };
 
         function App() {
-            // Main parametric state
             const [params, setParams] = useState({
                 modelType: 'enclosure',
                 length: 60,
@@ -139,16 +138,14 @@
                 addFlange: true
             });
 
-            // Viewport & backend status
-            const [backendStatus, setBackendStatus] = useState('checking'); // 'connected' | 'fallback' | 'checking'
+            const [backendStatus, setBackendStatus] = useState('checking');
             const [isGenerating, setIsGenerating] = useState(false);
             const [wireframe, setWireframe] = useState(false);
             const [autoRotate, setAutoRotate] = useState(false);
-            const [modelColor, setModelColor] = useState('#0ea5e9'); // sky-500
+            const [modelColor, setModelColor] = useState('#0ea5e9');
             const [meshStats, setMeshStats] = useState({ triangles: 0, vertices: 0, bbox: '60 × 40 × 25 mm', volumeCm3: 0 });
             const [downloadingFormat, setDownloadingFormat] = useState(null);
 
-            // Three.js scene refs
             const canvasRef = useRef(null);
             const sceneRef = useRef(null);
             const rendererRef = useRef(null);
@@ -159,7 +156,6 @@
             const lastStlBlobRef = useRef(null);
             const debounceTimerRef = useRef(null);
 
-            // 1. Check backend health on mount
             const checkBackendHealth = useCallback(async () => {
                 try {
                     const res = await fetch(`${API_BASE}/api/health`, { method: 'GET', signal: AbortSignal.timeout(2000) });
@@ -182,7 +178,6 @@
                 return () => clearInterval(interval);
             }, [checkBackendHealth]);
 
-            // 2. Initialize Three.js scene
             useEffect(() => {
                 const container = canvasRef.current;
                 if (!container) return;
@@ -208,15 +203,13 @@
                 const controls = new OrbitControls(camera, renderer.domElement);
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
-                controls.maxPolarAngle = Math.PI / 2 + 0.05; // Don't orbit below build bed
+                controls.maxPolarAngle = Math.PI / 2 + 0.05;
                 controlsRef.current = controls;
 
-                // 200x200mm Bed Grid (with 10mm and 50mm increments)
                 const grid = new THREE.GridHelper(200, 20, 0x38bdf8, 0x1e293b);
                 grid.position.y = 0;
                 scene.add(grid);
 
-                // Lighting
                 const ambient = new THREE.AmbientLight(0xffffff, 0.75);
                 scene.add(ambient);
 
@@ -233,7 +226,6 @@
                 rimLight.position.set(0, -100, 150);
                 scene.add(rimLight);
 
-                // Reusable Mesh Material
                 const material = new THREE.MeshStandardMaterial({
                     color: new THREE.Color(modelColor),
                     roughness: 0.3,
@@ -247,7 +239,6 @@
                 scene.add(meshGroup);
                 meshGroupRef.current = meshGroup;
 
-                // Render loop
                 let animationId;
                 const animate = () => {
                     animationId = requestAnimationFrame(animate);
@@ -263,7 +254,6 @@
                 };
                 animate();
 
-                // Resize handler
                 const handleResize = () => {
                     if (!container) return;
                     camera.aspect = container.clientWidth / container.clientHeight;
@@ -282,7 +272,6 @@
                 };
             }, []);
 
-            // 3. Update material color & wireframe
             useEffect(() => {
                 if (materialRef.current) {
                     materialRef.current.color.set(modelColor);
@@ -291,12 +280,10 @@
                 }
             }, [modelColor, wireframe]);
 
-            // 4. Client-side procedural geometry fallback (Zero downtime / Instant visual response)
             const buildFallbackGeometry = useCallback((p) => {
                 const group = meshGroupRef.current;
                 if (!group) return;
 
-                // Clear existing mesh
                 while (group.children.length > 0) {
                     const obj = group.children[0];
                     if (obj.geometry) obj.geometry.dispose();
@@ -307,7 +294,6 @@
                 let totalVertices = 0;
 
                 if (p.modelType === 'enclosure') {
-                    // Outer box
                     const outerGeo = new THREE.BoxGeometry(p.length, p.height, p.width);
                     const outerMesh = new THREE.Mesh(outerGeo, materialRef.current);
                     outerMesh.position.y = p.height / 2;
@@ -359,7 +345,6 @@
                 });
             }, []);
 
-            // 5. Generate / Fetch CAD Model from CadQuery backend
             const generateModel = useCallback(async (currentParams) => {
                 setIsGenerating(true);
 
@@ -379,16 +364,13 @@
                     const loader = new STLLoader();
                     const geometry = loader.parse(buffer);
 
-                    // CadQuery exports Z-up, Three.js is Y-up: rotate -90 deg X
                     geometry.rotateX(-Math.PI / 2);
                     geometry.computeBoundingBox();
                     geometry.computeVertexNormals();
 
-                    // Ground mesh on build plate (Y = 0)
                     const yOffset = -geometry.boundingBox.min.y;
                     geometry.translate(0, yOffset, 0);
 
-                    // Re-calculate accurate bounding box
                     geometry.computeBoundingBox();
                     const bbox = geometry.boundingBox;
                     const sizeX = Math.round(bbox.max.x - bbox.min.x);
@@ -426,7 +408,6 @@
                 }
             }, [buildFallbackGeometry]);
 
-            // Debounced update on parameter changes
             useEffect(() => {
                 if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
                 debounceTimerRef.current = setTimeout(() => {
@@ -435,17 +416,14 @@
                 return () => clearTimeout(debounceTimerRef.current);
             }, [params, generateModel]);
 
-            // Helper to update individual parameter
             const handleParamChange = (key, value) => {
                 setParams(prev => ({ ...prev, [key]: value }));
             };
 
-            // Preset selector handler
             const handleApplyPreset = (preset) => {
                 setParams(prev => ({ ...prev, ...preset }));
             };
 
-            // Switch template
             const handleTemplateChange = (tpl) => {
                 const defaults = {
                     enclosure: { length: 60, width: 40, height: 25, wallThickness: 2.4, filletRadius: 3.0, holeDiameter: 3.2, addFlange: true },
@@ -459,7 +437,6 @@
                 }));
             };
 
-            // File download handler (STL / STEP)
             const handleDownload = async (format) => {
                 setDownloadingFormat(format);
                 try {
@@ -483,7 +460,6 @@
                         alert("Start the Python backend ('python app.py') to compute exact B-Rep .STEP exports!");
                         return;
                     }
-                    // Client-side fallback STL exporter
                     const group = meshGroupRef.current;
                     if (group && group.children.length > 0) {
                         const exporter = new STLExporter();
@@ -504,7 +480,6 @@
                 }
             };
 
-            // Camera orientation presets
             const setCameraView = (view) => {
                 const controls = controlsRef.current;
                 const camera = cameraRef.current;
@@ -523,7 +498,6 @@
                 controls.update();
             };
 
-            // Take high-res snapshot
             const takeSnapshot = () => {
                 const renderer = rendererRef.current;
                 if (!renderer) return;
@@ -536,9 +510,7 @@
 
             return (
                 <div class="h-full w-full flex overflow-hidden">
-                    {/* LEFT SIDEBAR: Parametric Controls */}
                     <aside class="w-[410px] bg-slate-900/95 backdrop-blur-md border-r border-slate-800 flex flex-col h-full z-20 shadow-2xl flex-shrink-0">
-                        {/* Header Branding */}
                         <div class="p-5 border-b border-slate-800/80 flex items-center justify-between">
                             <div class="flex items-center gap-3">
                                 <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center shadow-lg shadow-sky-500/20 text-slate-950 font-black text-lg">
@@ -555,7 +527,6 @@
                                 </div>
                             </div>
 
-                            {/* Backend Connection Badge */}
                             <div>
                                 {backendStatus === 'connected' ? (
                                     <span class="inline-flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 shadow-sm">
@@ -569,7 +540,7 @@
                                     </span>
                                 ) : (
                                     <span title="Start 'python app.py' in terminal for true CadQuery CSG geometry"
-                                          class="inline-flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/25 cursor-help">
+                                        class="inline-flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/25 cursor-help">
                                         <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
                                         Fallback Preview
                                     </span>
@@ -577,9 +548,7 @@
                             </div>
                         </div>
 
-                        {/* Scrollable Parametric Area */}
                         <div class="p-5 space-y-6 overflow-y-auto flex-1">
-                            {/* Template Selector */}
                             <div>
                                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
                                     Part Template
@@ -595,11 +564,10 @@
                                             <button
                                                 key={tpl.id}
                                                 onClick={() => handleTemplateChange(tpl.id)}
-                                                class={`flex flex-col items-center justify-center py-2.5 px-2 rounded-xl text-xs font-medium border transition-all duration-150 ${
-                                                    isActive
+                                                class={`flex flex-col items-center justify-center py-2.5 px-2 rounded-xl text-xs font-medium border transition-all duration-150 ${isActive
                                                         ? 'bg-sky-600 text-white border-sky-400 shadow-md shadow-sky-600/30'
                                                         : 'bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border-slate-700/60'
-                                                }`}
+                                                    }`}
                                             >
                                                 <svg class="w-4 h-4 mb-1 fill-current opacity-80" viewBox="0 0 24 24">
                                                     <path d={tpl.icon} />
@@ -611,7 +579,6 @@
                                 </div>
                             </div>
 
-                            {/* Preset Quick Loader */}
                             {PRESETS[params.modelType] && (
                                 <div>
                                     <div class="flex items-center justify-between mb-2">
@@ -634,7 +601,6 @@
                                 </div>
                             )}
 
-                            {/* Primary Dimensions Card */}
                             <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 space-y-4">
                                 <div class="flex items-center justify-between pb-1 border-b border-slate-800/60">
                                     <span class="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
@@ -644,7 +610,6 @@
                                     <span class="text-[11px] font-mono text-slate-500">Units: mm</span>
                                 </div>
 
-                                {/* Length (X) */}
                                 <div>
                                     <div class="flex justify-between items-center text-xs mb-1.5">
                                         <span class="text-slate-300">Length (X)</span>
@@ -661,7 +626,6 @@
                                     />
                                 </div>
 
-                                {/* Width / Outer Dia (Y) */}
                                 <div>
                                     <div class="flex justify-between items-center text-xs mb-1.5">
                                         <span class="text-slate-300">
@@ -680,7 +644,6 @@
                                     />
                                 </div>
 
-                                {/* Height (Z) */}
                                 <div>
                                     <div class="flex justify-between items-center text-xs mb-1.5">
                                         <span class="text-slate-300">Height (Z)</span>
@@ -698,7 +661,6 @@
                                 </div>
                             </div>
 
-                            {/* Engineering & Features Card */}
                             <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 space-y-4">
                                 <div class="flex items-center justify-between pb-1 border-b border-slate-800/60">
                                     <span class="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
@@ -707,7 +669,6 @@
                                     </span>
                                 </div>
 
-                                {/* Wall Thickness */}
                                 <div>
                                     <div class="flex justify-between items-center text-xs mb-1.5">
                                         <span class="text-slate-300">Wall / Shell Thickness</span>
@@ -724,7 +685,6 @@
                                     />
                                 </div>
 
-                                {/* Corner Fillet Radius */}
                                 <div>
                                     <div class="flex justify-between items-center text-xs mb-1.5">
                                         <span class="text-slate-300">Fillet Radius</span>
@@ -741,7 +701,6 @@
                                     />
                                 </div>
 
-                                {/* Screw / Bore Hole Diameter */}
                                 <div>
                                     <div class="flex justify-between items-center text-xs mb-1.5">
                                         <span class="text-slate-300">Hole / Bore (M3 = 3.2mm)</span>
@@ -760,12 +719,11 @@
                                     />
                                 </div>
 
-                                {/* Flange / Ears Toggle */}
                                 <label class="flex items-center justify-between pt-2 border-t border-slate-800/80 cursor-pointer">
                                     <div class="text-xs">
                                         <span class="text-slate-200 block font-medium">
                                             {params.modelType === 'enclosure' ? 'Mounting Flange Ears' :
-                                             params.modelType === 'bracket' ? 'Stiffener Gusset Web' : 'Hex Mounting Collar'}
+                                                params.modelType === 'bracket' ? 'Stiffener Gusset Web' : 'Hex Mounting Collar'}
                                         </span>
                                         <span class="text-[11px] text-slate-500">Reinforces mechanical stability</span>
                                     </div>
@@ -778,7 +736,6 @@
                                 </label>
                             </div>
 
-                            {/* Print Stats Preview */}
                             <div class="bg-slate-950/70 border border-slate-800/90 rounded-2xl p-4 grid grid-cols-2 gap-3 text-xs">
                                 <div>
                                     <span class="text-slate-500 block mb-0.5">Bounding Box</span>
@@ -804,7 +761,6 @@
                             </div>
                         </div>
 
-                        {/* Export Actions Footer */}
                         <div class="p-4 border-t border-slate-800 bg-slate-900/95 space-y-2.5">
                             <button
                                 onClick={() => handleDownload('STL')}
@@ -830,11 +786,8 @@
                         </div>
                     </aside>
 
-                    {/* RIGHT MAIN VIEWPORT */}
                     <main class="flex-1 relative flex flex-col h-full overflow-hidden">
-                        {/* Top Control Bar HUD */}
                         <div class="absolute top-4 left-4 right-4 flex justify-between items-center pointer-events-none z-10">
-                            {/* Build Plate Specs */}
                             <div class="bg-slate-900/85 backdrop-blur-md border border-slate-800 px-4 py-2 rounded-xl text-xs text-slate-300 pointer-events-auto flex items-center gap-3 shadow-xl">
                                 <span>Build Bed: <strong class="text-white font-mono">200 × 200 mm</strong></span>
                                 <span class="text-slate-700">|</span>
@@ -859,7 +812,6 @@
                                 </label>
                             </div>
 
-                            {/* Viewport Action Pills */}
                             <div class="bg-slate-900/85 backdrop-blur-md border border-slate-800 px-2 py-1.5 rounded-xl text-xs text-slate-300 pointer-events-auto flex items-center gap-1 shadow-xl">
                                 <span class="text-[11px] text-slate-400 px-2">View:</span>
                                 <button onClick={() => setCameraView('iso')} class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition">Iso</button>
@@ -875,9 +827,7 @@
                             </div>
                         </div>
 
-                        {/* Three.js 3D WebGL Canvas */}
                         <div ref={canvasRef} class="flex-1 w-full h-full relative cursor-grab active:cursor-grabbing">
-                            {/* Generating Spinner Overlay */}
                             {isGenerating && (
                                 <div class="absolute top-4 right-4 bg-slate-900/90 backdrop-blur border border-sky-500/30 text-sky-400 px-3 py-1.5 rounded-full text-xs font-mono flex items-center gap-2 shadow-xl animate-pulse pointer-events-none">
                                     <svg class="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -889,14 +839,12 @@
                             )}
                         </div>
 
-                        {/* Bottom Navigation Hints & Filament Color Chooser */}
                         <div class="absolute bottom-4 left-4 right-4 flex justify-between items-center pointer-events-none z-10">
                             <div class="bg-slate-900/85 backdrop-blur-md border border-slate-800 px-3.5 py-1.5 rounded-xl text-[11px] text-slate-400 shadow-lg pointer-events-auto">
                                 <span class="text-slate-300 font-medium">Controls:</span> Left Click Orbit • Right Click Pan • Scroll Zoom
                             </div>
 
-                            {/* Color Selector */}
-                            <div class="bg-slate-900/85 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-2 shadow-lg pointer-events-auto">
+                            <div class="bg-slate-900/85 backdrop-blur-md border border-slate-800 px-3.5 py-1.5 rounded-xl flex items-center gap-2 shadow-lg pointer-events-auto">
                                 <span class="text-[11px] text-slate-400">Filament:</span>
                                 {[
                                     { name: 'Sky', hex: '#0ea5e9' },
@@ -910,9 +858,8 @@
                                         onClick={() => setModelColor(c.hex)}
                                         title={c.name}
                                         style={{ backgroundColor: c.hex }}
-                                        class={`w-4 h-4 rounded-full transition-transform ${
-                                            modelColor === c.hex ? 'scale-125 ring-2 ring-white/50' : 'hover:scale-110 opacity-80'
-                                        }`}
+                                        class={`w-4 h-4 rounded-full transition-transform ${modelColor === c.hex ? 'scale-125 ring-2 ring-white/50' : 'hover:scale-110 opacity-80'
+                                            }`}
                                     />
                                 ))}
                             </div>
