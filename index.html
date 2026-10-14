@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZIC Modeling — Parametric 3D CAD & 3D Print Generator</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            400: '#38bdf8',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Custom scrollbar for sidebar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #090d16;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #334155;
+        }
+
+        /* Range input styling */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: #1e293b;
+            border-radius: 9999px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+            transition: transform 0.1s ease, background-color 0.1s ease;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            background: #7dd3fc;
+        }
+    </style>
+
+    <!-- React 18 & Babel Standalone -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Three.js + Addons Import Map -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+    </script>
+</head>
+
+<body class="bg-slate-950 text-slate-100 h-screen w-screen overflow-hidden select-none font-sans antialiased">
+    <div id="root" class="h-full w-full flex"></div>
+
+    <script type="text/babel" data-type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+
+        const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+        const API_BASE = "http://127.0.0.1:5000";
+
+        // Preset library for common maker sizes
+        const PRESETS = {
+            enclosure: [
+                { name: "Raspberry Pi 4", length: 92, width: 62, height: 28, wallThickness: 2.0, filletRadius: 4.0, holeDiameter: 3.0, addFlange: true },
+                { name: "Arduino Uno", length: 78, width: 60, height: 24, wallThickness: 2.2, filletRadius: 3.0, holeDiameter: 3.2, addFlange: true },
+                { name: "Mini Sensor Box", length: 45, width: 30, height: 18, wallThickness: 1.8, filletRadius: 2.5, holeDiameter: 2.5, addFlange: false },
+            ],
+            bracket: [
+                { name: "NEMA 17 Mount", length: 42, width: 42, height: 40, wallThickness: 3.5, filletRadius: 2.0, holeDiameter: 3.5, addFlange: true },
+                { name: "Light 2020 Corner", length: 30, width: 20, height: 30, wallThickness: 3.0, filletRadius: 2.0, holeDiameter: 4.2, addFlange: true },
+                { name: "Heavy Shelf L", length: 75, width: 35, height: 60, wallThickness: 5.0, filletRadius: 3.0, holeDiameter: 5.2, addFlange: true },
+            ],
+            standoff: [
+                { name: "M3 Standoff 20mm", length: 20, width: 8, height: 20, wallThickness: 2.0, filletRadius: 1.0, holeDiameter: 3.2, addFlange: true },
+                { name: "M4 Spacer 12mm", length: 12, width: 10, height: 12, wallThickness: 2.5, filletRadius: 1.0, holeDiameter: 4.2, addFlange: false },
+                { name: "Threaded Bushing", length: 15, width: 14, height: 16, wallThickness: 3.0, filletRadius: 1.5, holeDiameter: 5.0, addFlange: true },
+            ]
+        };
+
+        function App() {
+            // Main parametric state
+            const [params, setParams] = useState({
+                modelType: 'enclosure',
+                length: 60,
+                width: 40,
+                height: 25,
+                wallThickness: 2.4,
+                filletRadius: 3.0,
+                holeDiameter: 3.2,
+                addFlange: true
+            });
+
+            // Viewport & backend status
+            const [backendStatus, setBackendStatus] = useState('checking'); // 'connected' | 'fallback' | 'checking'
+            const [isGenerating, setIsGenerating] = useState(false);
+            const [wireframe, setWireframe] = useState(false);
+            const [autoRotate, setAutoRotate] = useState(false);
+            const [modelColor, setModelColor] = useState('#0ea5e9'); // sky-500
+            const [meshStats, setMeshStats] = useState({ triangles: 0, vertices: 0, bbox: '60 × 40 × 25 mm', volumeCm3: 0 });
+            const [downloadingFormat, setDownloadingFormat] = useState(null);
+
+            // Three.js scene refs
+            const canvasRef = useRef(null);
+            const sceneRef = useRef(null);
+            const rendererRef = useRef(null);
+            const cameraRef = useRef(null);
+            const controlsRef = useRef(null);
+            const meshGroupRef = useRef(null);
+            const materialRef = useRef(null);
+            const lastStlBlobRef = useRef(null);
+            const debounceTimerRef = useRef(null);
+
+            // 1. Check backend health on mount
+            const checkBackendHealth = useCallback(async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/api/health`, { method: 'GET', signal: AbortSignal.timeout(2000) });
+                    if (res.ok) {
+                        const info = await res.json();
+                        setBackendStatus('connected');
+                        return true;
+                    }
+                } catch {
+                    setBackendStatus('fallback');
+                    return false;
+                }
+                setBackendStatus('fallback');
+                return false;
+            }, []);
+
+            useEffect(() => {
+                checkBackendHealth();
+                const interval = setInterval(checkBackendHealth, 8000);
+                return () => clearInterval(interval);
+            }, [checkBackendHealth]);
+
+            // 2. Initialize Three.js scene
+            useEffect(() => {
+                const container = canvasRef.current;
+                if (!container) return;
+
+                const scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x090d16);
+                sceneRef.current = scene;
+
+                const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 3000);
+                camera.position.set(120, 100, 140);
+                cameraRef.current = camera;
+
+                const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+                renderer.setSize(container.clientWidth, container.clientHeight);
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                renderer.shadowMap.enabled = true;
+                renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                renderer.toneMapping = THREE.ACESFilmicToneMapping;
+                rendererRef.current = renderer;
+
+                container.appendChild(renderer.domElement);
+
+                const controls = new OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+                controls.maxPolarAngle = Math.PI / 2 + 0.05; // Don't orbit below build bed
+                controlsRef.current = controls;
+
+                // 200x200mm Bed Grid (with 10mm and 50mm increments)
+                const grid = new THREE.GridHelper(200, 20, 0x38bdf8, 0x1e293b);
+                grid.position.y = 0;
+                scene.add(grid);
+
+                // Lighting
+                const ambient = new THREE.AmbientLight(0xffffff, 0.75);
+                scene.add(ambient);
+
+                const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
+                keyLight.position.set(150, 250, 120);
+                keyLight.castShadow = true;
+                scene.add(keyLight);
+
+                const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.4);
+                fillLight.position.set(-150, 100, -120);
+                scene.add(fillLight);
+
+                const rimLight = new THREE.DirectionalLight(0x94a3b8, 0.3);
+                rimLight.position.set(0, -100, 150);
+                scene.add(rimLight);
+
+                // Reusable Mesh Material
+                const material = new THREE.MeshStandardMaterial({
+                    color: new THREE.Color(modelColor),
+                    roughness: 0.3,
+                    metalness: 0.15,
+                    flatShading: false,
+                    wireframe: wireframe
+                });
+                materialRef.current = material;
+
+                const meshGroup = new THREE.Group();
+                scene.add(meshGroup);
+                meshGroupRef.current = meshGroup;
+
+                // Render loop
+                let animationId;
+                const animate = () => {
+                    animationId = requestAnimationFrame(animate);
+                    if (controlsRef.current) {
+                        if (autoRotate) {
+                            meshGroup.rotation.y += 0.008;
+                        } else {
+                            meshGroup.rotation.y = 0;
+                        }
+                        controlsRef.current.update();
+                    }
+                    renderer.render(scene, camera);
+                };
+                animate();
+
+                // Resize handler
+                const handleResize = () => {
+                    if (!container) return;
+                    camera.aspect = container.clientWidth / container.clientHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(container.clientWidth, container.clientHeight);
+                };
+                window.addEventListener('resize', handleResize);
+
+                return () => {
+                    cancelAnimationFrame(animationId);
+                    window.removeEventListener('resize', handleResize);
+                    renderer.dispose();
+                    if (container && renderer.domElement) {
+                        container.removeChild(renderer.domElement);
+                    }
+                };
+            }, []);
+
+            // 3. Update material color & wireframe
+            useEffect(() => {
+                if (materialRef.current) {
+                    materialRef.current.color.set(modelColor);
+                    materialRef.current.wireframe = wireframe;
+                    materialRef.current.needsUpdate = true;
+                }
+            }, [modelColor, wireframe]);
+
+            // 4. Client-side procedural geometry fallback (Zero downtime / Instant visual response)
+            const buildFallbackGeometry = useCallback((p) => {
+                const group = meshGroupRef.current;
+                if (!group) return;
+
+                // Clear existing mesh
+                while (group.children.length > 0) {
+                    const obj = group.children[0];
+                    if (obj.geometry) obj.geometry.dispose();
+                    group.remove(obj);
+                }
+
+                let totalTriangles = 0;
+                let totalVertices = 0;
+
+                if (p.modelType === 'enclosure') {
+                    // Outer box
+                    const outerGeo = new THREE.BoxGeometry(p.length, p.height, p.width);
+                    const outerMesh = new THREE.Mesh(outerGeo, materialRef.current);
+                    outerMesh.position.y = p.height / 2;
+                    group.add(outerMesh);
+                    totalTriangles += outerGeo.index ? outerGeo.index.count / 3 : outerGeo.attributes.position.count / 3;
+                    totalVertices += outerGeo.attributes.position.count;
+
+                    if (p.addFlange) {
+                        const flangeGeo = new THREE.BoxGeometry(p.length + 24, p.wallThickness, p.width * 0.7);
+                        const flangeMesh = new THREE.Mesh(flangeGeo, materialRef.current);
+                        flangeMesh.position.y = p.wallThickness / 2;
+                        group.add(flangeMesh);
+                        totalTriangles += flangeGeo.index ? flangeGeo.index.count / 3 : flangeGeo.attributes.position.count / 3;
+                        totalVertices += flangeGeo.attributes.position.count;
+                    }
+                } else if (p.modelType === 'bracket') {
+                    const leg1Geo = new THREE.BoxGeometry(p.length, p.wallThickness, p.width);
+                    const leg1 = new THREE.Mesh(leg1Geo, materialRef.current);
+                    leg1.position.set(p.length / 2, p.wallThickness / 2, 0);
+
+                    const leg2Geo = new THREE.BoxGeometry(p.wallThickness, p.height, p.width);
+                    const leg2 = new THREE.Mesh(leg2Geo, materialRef.current);
+                    leg2.position.set(p.wallThickness / 2, p.height / 2, 0);
+
+                    group.add(leg1, leg2);
+                    totalTriangles += (leg1Geo.attributes.position.count + leg2Geo.attributes.position.count) / 3;
+                    totalVertices += leg1Geo.attributes.position.count + leg2Geo.attributes.position.count;
+                } else {
+                    const cylGeo = new THREE.CylinderGeometry(p.width / 2, p.width / 2, p.height, 36);
+                    const cyl = new THREE.Mesh(cylGeo, materialRef.current);
+                    cyl.position.y = p.height / 2;
+                    group.add(cyl);
+
+                    if (p.addFlange) {
+                        const flangeGeo = new THREE.CylinderGeometry(p.width * 0.7, p.width * 0.7, p.wallThickness, 6);
+                        const flange = new THREE.Mesh(flangeGeo, materialRef.current);
+                        flange.position.y = p.wallThickness / 2;
+                        group.add(flange);
+                    }
+                    totalTriangles += cylGeo.index ? cylGeo.index.count / 3 : 0;
+                    totalVertices += cylGeo.attributes.position.count;
+                }
+
+                setMeshStats({
+                    triangles: Math.round(totalTriangles),
+                    vertices: Math.round(totalVertices),
+                    bbox: `${p.length} × ${p.width} × ${p.height} mm`,
+                    volumeCm3: Number(((p.length * p.width * p.height) / 1000 * 0.35).toFixed(1))
+                });
+            }, []);
+
+            // 5. Generate / Fetch CAD Model from CadQuery backend
+            const generateModel = useCallback(async (currentParams) => {
+                setIsGenerating(true);
+
+                try {
+                    const res = await fetch(`${API_BASE}/api/generate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...currentParams, format: 'STL' }),
+                        signal: AbortSignal.timeout(6000)
+                    });
+
+                    if (!res.ok) throw new Error("Backend generation failed");
+
+                    const buffer = await res.arrayBuffer();
+                    lastStlBlobRef.current = new Blob([buffer], { type: 'application/octet-stream' });
+
+                    const loader = new STLLoader();
+                    const geometry = loader.parse(buffer);
+
+                    // CadQuery exports Z-up, Three.js is Y-up: rotate -90 deg X
+                    geometry.rotateX(-Math.PI / 2);
+                    geometry.computeBoundingBox();
+                    geometry.computeVertexNormals();
+
+                    // Ground mesh on build plate (Y = 0)
+                    const yOffset = -geometry.boundingBox.min.y;
+                    geometry.translate(0, yOffset, 0);
+
+                    // Re-calculate accurate bounding box
+                    geometry.computeBoundingBox();
+                    const bbox = geometry.boundingBox;
+                    const sizeX = Math.round(bbox.max.x - bbox.min.x);
+                    const sizeY = Math.round(bbox.max.z - bbox.min.z);
+                    const sizeZ = Math.round(bbox.max.y - bbox.min.y);
+
+                    const group = meshGroupRef.current;
+                    if (group) {
+                        while (group.children.length > 0) {
+                            const obj = group.children[0];
+                            if (obj.geometry) obj.geometry.dispose();
+                            group.remove(obj);
+                        }
+                        const newMesh = new THREE.Mesh(geometry, materialRef.current);
+                        newMesh.castShadow = true;
+                        newMesh.receiveShadow = true;
+                        group.add(newMesh);
+                    }
+
+                    const triCount = geometry.index ? geometry.index.count / 3 : geometry.attributes.position.count / 3;
+                    setMeshStats({
+                        triangles: Math.round(triCount),
+                        vertices: geometry.attributes.position.count,
+                        bbox: `${sizeX} × ${sizeY} × ${sizeZ} mm`,
+                        volumeCm3: Number(((sizeX * sizeY * sizeZ) / 1000 * 0.28).toFixed(1))
+                    });
+
+                    setBackendStatus('connected');
+                } catch (err) {
+                    console.warn("Backend not reachable or error, rendering client fallback:", err);
+                    setBackendStatus('fallback');
+                    buildFallbackGeometry(currentParams);
+                } finally {
+                    setIsGenerating(false);
+                }
+            }, [buildFallbackGeometry]);
+
+            // Debounced update on parameter changes
+            useEffect(() => {
+                if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+                debounceTimerRef.current = setTimeout(() => {
+                    generateModel(params);
+                }, 160);
+                return () => clearTimeout(debounceTimerRef.current);
+            }, [params, generateModel]);
+
+            // Helper to update individual parameter
+            const handleParamChange = (key, value) => {
+                setParams(prev => ({ ...prev, [key]: value }));
+            };
+
+            // Preset selector handler
+            const handleApplyPreset = (preset) => {
+                setParams(prev => ({ ...prev, ...preset }));
+            };
+
+            // Switch template
+            const handleTemplateChange = (tpl) => {
+                const defaults = {
+                    enclosure: { length: 60, width: 40, height: 25, wallThickness: 2.4, filletRadius: 3.0, holeDiameter: 3.2, addFlange: true },
+                    bracket: { length: 50, width: 35, height: 40, wallThickness: 3.0, filletRadius: 2.0, holeDiameter: 3.5, addFlange: true },
+                    standoff: { length: 25, width: 16, height: 25, wallThickness: 2.4, filletRadius: 1.5, holeDiameter: 4.2, addFlange: true }
+                };
+                setParams(prev => ({
+                    ...prev,
+                    modelType: tpl,
+                    ...defaults[tpl]
+                }));
+            };
+
+            // File download handler (STL / STEP)
+            const handleDownload = async (format) => {
+                setDownloadingFormat(format);
+                try {
+                    const res = await fetch(`${API_BASE}/api/generate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...params, format })
+                    });
+
+                    if (!res.ok) throw new Error("Backend offline");
+
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `${params.modelType}_${params.length}x${params.width}x${params.height}.${format.toLowerCase()}`;
+                    link.click();
+                    URL.revokeObjectURL(url);
+                } catch {
+                    if (format === 'STEP') {
+                        alert("Start the Python backend ('python app.py') to compute exact B-Rep .STEP exports!");
+                        return;
+                    }
+                    // Client-side fallback STL exporter
+                    const group = meshGroupRef.current;
+                    if (group && group.children.length > 0) {
+                        const exporter = new STLExporter();
+                        const clone = group.clone();
+                        clone.rotation.x = Math.PI / 2;
+                        clone.updateMatrixWorld(true);
+                        const result = exporter.parse(clone, { binary: true });
+                        const blob = new Blob([result], { type: 'application/octet-stream' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `${params.modelType}_fallback.stl`;
+                        link.click();
+                        URL.revokeObjectURL(url);
+                    }
+                } finally {
+                    setDownloadingFormat(null);
+                }
+            };
+
+            // Camera orientation presets
+            const setCameraView = (view) => {
+                const controls = controlsRef.current;
+                const camera = cameraRef.current;
+                if (!controls || !camera) return;
+
+                controls.target.set(0, params.height / 2, 0);
+                if (view === 'iso') {
+                    camera.position.set(120, 100, 140);
+                } else if (view === 'top') {
+                    camera.position.set(0, 220, 0.001);
+                } else if (view === 'front') {
+                    camera.position.set(0, params.height / 2, 200);
+                } else if (view === 'side') {
+                    camera.position.set(200, params.height / 2, 0);
+                }
+                controls.update();
+            };
+
+            // Take high-res snapshot
+            const takeSnapshot = () => {
+                const renderer = rendererRef.current;
+                if (!renderer) return;
+                const dataURL = renderer.domElement.toDataURL('image/png');
+                const link = document.createElement('a');
+                link.href = dataURL;
+                link.download = `zic_modeling_${params.modelType}_render.png`;
+                link.click();
+            };
+
+            return (
+                <div class="h-full w-full flex overflow-hidden">
+                    {/* LEFT SIDEBAR: Parametric Controls */}
+                    <aside class="w-[410px] bg-slate-900/95 backdrop-blur-md border-r border-slate-800 flex flex-col h-full z-20 shadow-2xl flex-shrink-0">
+                        {/* Header Branding */}
+                        <div class="p-5 border-b border-slate-800/80 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center shadow-lg shadow-sky-500/20 text-slate-950 font-black text-lg">
+                                    Z
+                                </div>
+                                <div>
+                                    <h1 class="text-base font-bold tracking-tight text-white flex items-center gap-2">
+                                        ZIC Modeling
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded font-mono bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                                            React + CadQuery
+                                        </span>
+                                    </h1>
+                                    <p class="text-xs text-slate-400">Parametric CSG & Slicer Prep</p>
+                                </div>
+                            </div>
+
+                            {/* Backend Connection Badge */}
+                            <div>
+                                {backendStatus === 'connected' ? (
+                                    <span class="inline-flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 shadow-sm">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                        API Active
+                                    </span>
+                                ) : backendStatus === 'checking' ? (
+                                    <span class="inline-flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/25">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping"></span>
+                                        Checking...
+                                    </span>
+                                ) : (
+                                    <span title="Start 'python app.py' in terminal for true CadQuery CSG geometry"
+                                          class="inline-flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/25 cursor-help">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                        Fallback Preview
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Scrollable Parametric Area */}
+                        <div class="p-5 space-y-6 overflow-y-auto flex-1">
+                            {/* Template Selector */}
+                            <div>
+                                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
+                                    Part Template
+                                </label>
+                                <div class="grid grid-cols-3 gap-2">
+                                    {[
+                                        { id: 'enclosure', label: 'Project Box', icon: 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z' },
+                                        { id: 'bracket', label: 'L-Bracket', icon: 'M4 4h4v12h12v4H4V4z' },
+                                        { id: 'standoff', label: 'Standoff', icon: 'M12 2a6 6 0 00-6 6v8a6 6 0 0012 0V8a6 6 0 00-6-6z' }
+                                    ].map(tpl => {
+                                        const isActive = params.modelType === tpl.id;
+                                        return (
+                                            <button
+                                                key={tpl.id}
+                                                onClick={() => handleTemplateChange(tpl.id)}
+                                                class={`flex flex-col items-center justify-center py-2.5 px-2 rounded-xl text-xs font-medium border transition-all duration-150 ${
+                                                    isActive
+                                                        ? 'bg-sky-600 text-white border-sky-400 shadow-md shadow-sky-600/30'
+                                                        : 'bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border-slate-700/60'
+                                                }`}
+                                            >
+                                                <svg class="w-4 h-4 mb-1 fill-current opacity-80" viewBox="0 0 24 24">
+                                                    <path d={tpl.icon} />
+                                                </svg>
+                                                {tpl.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Preset Quick Loader */}
+                            {PRESETS[params.modelType] && (
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                                            Maker Presets
+                                        </span>
+                                        <span class="text-[11px] text-slate-500">Quick Config</span>
+                                    </div>
+                                    <div class="flex flex-wrap gap-1.5">
+                                        {PRESETS[params.modelType].map((preset, idx) => (
+                                            <button
+                                                key={idx}
+                                                onClick={() => handleApplyPreset(preset)}
+                                                class="text-xs bg-slate-800 hover:bg-slate-700 hover:text-sky-300 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700/80 transition"
+                                            >
+                                                {preset.name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Primary Dimensions Card */}
+                            <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 space-y-4">
+                                <div class="flex items-center justify-between pb-1 border-b border-slate-800/60">
+                                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                                        Primary Dimensions
+                                    </span>
+                                    <span class="text-[11px] font-mono text-slate-500">Units: mm</span>
+                                </div>
+
+                                {/* Length (X) */}
+                                <div>
+                                    <div class="flex justify-between items-center text-xs mb-1.5">
+                                        <span class="text-slate-300">Length (X)</span>
+                                        <span class="font-mono text-sky-400 font-semibold">{params.length} mm</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="20"
+                                        max="150"
+                                        step="1"
+                                        value={params.length}
+                                        onChange={(e) => handleParamChange('length', parseFloat(e.target.value))}
+                                        class="w-full cursor-pointer"
+                                    />
+                                </div>
+
+                                {/* Width / Outer Dia (Y) */}
+                                <div>
+                                    <div class="flex justify-between items-center text-xs mb-1.5">
+                                        <span class="text-slate-300">
+                                            {params.modelType === 'standoff' ? 'Outer Diameter (OD)' : 'Width (Y)'}
+                                        </span>
+                                        <span class="font-mono text-sky-400 font-semibold">{params.width} mm</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="15"
+                                        max="150"
+                                        step="1"
+                                        value={params.width}
+                                        onChange={(e) => handleParamChange('width', parseFloat(e.target.value))}
+                                        class="w-full cursor-pointer"
+                                    />
+                                </div>
+
+                                {/* Height (Z) */}
+                                <div>
+                                    <div class="flex justify-between items-center text-xs mb-1.5">
+                                        <span class="text-slate-300">Height (Z)</span>
+                                        <span class="font-mono text-sky-400 font-semibold">{params.height} mm</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="8"
+                                        max="100"
+                                        step="1"
+                                        value={params.height}
+                                        onChange={(e) => handleParamChange('height', parseFloat(e.target.value))}
+                                        class="w-full cursor-pointer"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Engineering & Features Card */}
+                            <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 space-y-4">
+                                <div class="flex items-center justify-between pb-1 border-b border-slate-800/60">
+                                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                        Engineering & Tolerances
+                                    </span>
+                                </div>
+
+                                {/* Wall Thickness */}
+                                <div>
+                                    <div class="flex justify-between items-center text-xs mb-1.5">
+                                        <span class="text-slate-300">Wall / Shell Thickness</span>
+                                        <span class="font-mono text-sky-400 font-semibold">{params.wallThickness.toFixed(1)} mm</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="1.2"
+                                        max="8.0"
+                                        step="0.2"
+                                        value={params.wallThickness}
+                                        onChange={(e) => handleParamChange('wallThickness', parseFloat(e.target.value))}
+                                        class="w-full cursor-pointer"
+                                    />
+                                </div>
+
+                                {/* Corner Fillet Radius */}
+                                <div>
+                                    <div class="flex justify-between items-center text-xs mb-1.5">
+                                        <span class="text-slate-300">Fillet Radius</span>
+                                        <span class="font-mono text-sky-400 font-semibold">{params.filletRadius.toFixed(1)} mm</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0.5"
+                                        max="10.0"
+                                        step="0.5"
+                                        value={params.filletRadius}
+                                        onChange={(e) => handleParamChange('filletRadius', parseFloat(e.target.value))}
+                                        class="w-full cursor-pointer"
+                                    />
+                                </div>
+
+                                {/* Screw / Bore Hole Diameter */}
+                                <div>
+                                    <div class="flex justify-between items-center text-xs mb-1.5">
+                                        <span class="text-slate-300">Hole / Bore (M3 = 3.2mm)</span>
+                                        <span class="font-mono text-sky-400 font-semibold">
+                                            {params.holeDiameter > 0 ? `${params.holeDiameter.toFixed(1)} mm` : 'Disabled'}
+                                        </span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="10.0"
+                                        step="0.2"
+                                        value={params.holeDiameter}
+                                        onChange={(e) => handleParamChange('holeDiameter', parseFloat(e.target.value))}
+                                        class="w-full cursor-pointer"
+                                    />
+                                </div>
+
+                                {/* Flange / Ears Toggle */}
+                                <label class="flex items-center justify-between pt-2 border-t border-slate-800/80 cursor-pointer">
+                                    <div class="text-xs">
+                                        <span class="text-slate-200 block font-medium">
+                                            {params.modelType === 'enclosure' ? 'Mounting Flange Ears' :
+                                             params.modelType === 'bracket' ? 'Stiffener Gusset Web' : 'Hex Mounting Collar'}
+                                        </span>
+                                        <span class="text-[11px] text-slate-500">Reinforces mechanical stability</span>
+                                    </div>
+                                    <input
+                                        type="checkbox"
+                                        checked={params.addFlange}
+                                        onChange={(e) => handleParamChange('addFlange', e.target.checked)}
+                                        class="w-4 h-4 accent-sky-500 rounded cursor-pointer"
+                                    />
+                                </label>
+                            </div>
+
+                            {/* Print Stats Preview */}
+                            <div class="bg-slate-950/70 border border-slate-800/90 rounded-2xl p-4 grid grid-cols-2 gap-3 text-xs">
+                                <div>
+                                    <span class="text-slate-500 block mb-0.5">Bounding Box</span>
+                                    <span class="font-mono text-slate-200 font-semibold">{meshStats.bbox}</span>
+                                </div>
+                                <div>
+                                    <span class="text-slate-500 block mb-0.5">Slicer Status</span>
+                                    <span class="font-mono text-emerald-400 font-semibold flex items-center gap-1">
+                                        <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                        </svg>
+                                        Watertight (Manifold)
+                                    </span>
+                                </div>
+                                <div>
+                                    <span class="text-slate-500 block mb-0.5">Mesh Triangles</span>
+                                    <span class="font-mono text-slate-300">{meshStats.triangles.toLocaleString()}</span>
+                                </div>
+                                <div>
+                                    <span class="text-slate-500 block mb-0.5">Estimated PLA Vol</span>
+                                    <span class="font-mono text-slate-300">~{meshStats.volumeCm3} cm³</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Export Actions Footer */}
+                        <div class="p-4 border-t border-slate-800 bg-slate-900/95 space-y-2.5">
+                            <button
+                                onClick={() => handleDownload('STL')}
+                                disabled={downloadingFormat !== null}
+                                class="w-full bg-sky-500 hover:bg-sky-400 active:scale-[0.99] text-slate-950 font-bold py-2.5 px-4 rounded-xl transition shadow-lg shadow-sky-500/20 flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                            >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                {downloadingFormat === 'STL' ? 'Generating STL...' : 'Download .STL (For 3D Slicer)'}
+                            </button>
+
+                            <button
+                                onClick={() => handleDownload('STEP')}
+                                disabled={downloadingFormat !== null}
+                                class="w-full bg-slate-800 hover:bg-slate-700 active:scale-[0.99] text-slate-200 font-semibold py-2 px-4 rounded-xl border border-slate-700 transition flex items-center justify-center gap-2 text-xs disabled:opacity-50"
+                            >
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                {downloadingFormat === 'STEP' ? 'Exporting STEP...' : 'Export .STEP (True B-Rep CAD)'}
+                            </button>
+                        </div>
+                    </aside>
+
+                    {/* RIGHT MAIN VIEWPORT */}
+                    <main class="flex-1 relative flex flex-col h-full overflow-hidden">
+                        {/* Top Control Bar HUD */}
+                        <div class="absolute top-4 left-4 right-4 flex justify-between items-center pointer-events-none z-10">
+                            {/* Build Plate Specs */}
+                            <div class="bg-slate-900/85 backdrop-blur-md border border-slate-800 px-4 py-2 rounded-xl text-xs text-slate-300 pointer-events-auto flex items-center gap-3 shadow-xl">
+                                <span>Build Bed: <strong class="text-white font-mono">200 × 200 mm</strong></span>
+                                <span class="text-slate-700">|</span>
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={wireframe}
+                                        onChange={(e) => setWireframe(e.target.checked)}
+                                        class="w-3.5 h-3.5 accent-sky-400 rounded"
+                                    />
+                                    <span>Wireframe</span>
+                                </label>
+                                <span class="text-slate-700">|</span>
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={autoRotate}
+                                        onChange={(e) => setAutoRotate(e.target.checked)}
+                                        class="w-3.5 h-3.5 accent-sky-400 rounded"
+                                    />
+                                    <span>Auto-Spin</span>
+                                </label>
+                            </div>
+
+                            {/* Viewport Action Pills */}
+                            <div class="bg-slate-900/85 backdrop-blur-md border border-slate-800 px-2 py-1.5 rounded-xl text-xs text-slate-300 pointer-events-auto flex items-center gap-1 shadow-xl">
+                                <span class="text-[11px] text-slate-400 px-2">View:</span>
+                                <button onClick={() => setCameraView('iso')} class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition">Iso</button>
+                                <button onClick={() => setCameraView('top')} class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition">Top</button>
+                                <button onClick={() => setCameraView('front')} class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition">Front</button>
+                                <span class="text-slate-700 mx-1">|</span>
+                                <button onClick={takeSnapshot} title="Capture PNG snapshot" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Three.js 3D WebGL Canvas */}
+                        <div ref={canvasRef} class="flex-1 w-full h-full relative cursor-grab active:cursor-grabbing">
+                            {/* Generating Spinner Overlay */}
+                            {isGenerating && (
+                                <div class="absolute top-4 right-4 bg-slate-900/90 backdrop-blur border border-sky-500/30 text-sky-400 px-3 py-1.5 rounded-full text-xs font-mono flex items-center gap-2 shadow-xl animate-pulse pointer-events-none">
+                                    <svg class="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <span>CadQuery Computing CSG...</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Bottom Navigation Hints & Filament Color Chooser */}
+                        <div class="absolute bottom-4 left-4 right-4 flex justify-between items-center pointer-events-none z-10">
+                            <div class="bg-slate-900/85 backdrop-blur-md border border-slate-800 px-3.5 py-1.5 rounded-xl text-[11px] text-slate-400 shadow-lg pointer-events-auto">
+                                <span class="text-slate-300 font-medium">Controls:</span> Left Click Orbit • Right Click Pan • Scroll Zoom
+                            </div>
+
+                            {/* Color Selector */}
+                            <div class="bg-slate-900/85 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-2 shadow-lg pointer-events-auto">
+                                <span class="text-[11px] text-slate-400">Filament:</span>
+                                {[
+                                    { name: 'Sky', hex: '#0ea5e9' },
+                                    { name: 'Emerald', hex: '#10b981' },
+                                    { name: 'Amber', hex: '#f59e0b' },
+                                    { name: 'Purple', hex: '#8b5cf6' },
+                                    { name: 'Dark Slate', hex: '#334155' }
+                                ].map(c => (
+                                    <button
+                                        key={c.hex}
+                                        onClick={() => setModelColor(c.hex)}
+                                        title={c.name}
+                                        style={{ backgroundColor: c.hex }}
+                                        class={`w-4 h-4 rounded-full transition-transform ${
+                                            modelColor === c.hex ? 'scale-125 ring-2 ring-white/50' : 'hover:scale-110 opacity-80'
+                                        }`}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+
+</html>
